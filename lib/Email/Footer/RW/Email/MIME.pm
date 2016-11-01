@@ -30,13 +30,35 @@ sub _maybe_update_bare_email {
 }
 
 sub walk_parts {
-  my ($self, $input, $text_sub, $html_sub) = @_;
+  my ($self, $input, $what, $text_sub, $html_sub) = @_;
 
   my $email = $self->_get_mime_object($input);
 
+  my $skip = 0;
+
   $email->walk_parts(sub {
     my ($part) = @_;
-    return if $part->subparts; # multipart
+
+    if ($part->content_type && $part->content_type =~ m[multipart/signed]i) {
+      # Signed message? Add a text part to the end that will contain the
+      # footer so we don't break PGP
+      if ($what eq 'adding') {
+        $skip++ for $part->subparts;
+
+        $email->parts_add([
+          Email::MIME->create(
+            attributes => {
+              content_type => "text/plain",
+              charset      => "UTF-8",
+              encoding     => "quoted-printable",
+            },
+            body_str => "",
+          ),
+        ]);
+      }
+    }
+
+    return if $part->subparts || ($skip-- > 0);
 
     if ($part->content_type =~ m[text/plain]i) {
       return unless $text_sub;
